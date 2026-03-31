@@ -1,5 +1,5 @@
 import { initializeApp } from 'firebase/app';
-import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
+import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, signInWithEmailAndPassword, createUserWithEmailAndPassword, signInAnonymously } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
 import { getStorage } from 'firebase/storage';
 import firebaseConfig from '../firebase-applet-config.json';
@@ -15,6 +15,7 @@ export const googleProvider = new GoogleAuthProvider();
 export const signIn = () => signInWithPopup(auth, googleProvider);
 export const signInEmail = (email: string, pass: string) => signInWithEmailAndPassword(auth, email, pass);
 export const signUpEmail = (email: string, pass: string) => createUserWithEmailAndPassword(auth, email, pass);
+export const signInGuest = () => signInAnonymously(auth);
 export const logOut = () => signOut(auth);
 
 // Error Handling Spec for Firestore Operations

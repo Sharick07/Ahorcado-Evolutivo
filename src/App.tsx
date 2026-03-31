@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef, Component, ErrorInfo, ReactNode } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { GoogleGenAI } from '@google/genai';
-import { auth, signIn, logOut, db, signInEmail, signUpEmail, handleFirestoreError, OperationType } from './firebase';
+import { auth, signIn, logOut, db, signInEmail, signUpEmail, handleFirestoreError, OperationType, signInGuest } from './firebase';
 import { onAuthStateChanged, User } from 'firebase/auth';
 import { 
   doc, 
@@ -90,7 +90,9 @@ export default function App() {
 
 function GameContent() {
   const [user, setUser] = useState<User | null>(null);
+  const [guestUser, setGuestUser] = useState<{ uid: string, displayName: string, photoURL?: string } | null>(null);
   const [game, setGame] = useState<GameState | null>(null);
+  const activeUser = user || guestUser;
   const [status, setStatus] = useState<GameStatus>(GameStatus.IDLE);
   const [isLoadingNarrative, setIsLoadingNarrative] = useState(false);
   const [isAuthReady, setIsAuthReady] = useState(false);
@@ -199,8 +201,8 @@ function GameContent() {
       status: GameStatus.PLAYING,
       scenarioId: scenario.id,
       createdAt: Date.now(),
-      leaderId: user?.uid || 'guest',
-      players: user ? [{ uid: user.uid, displayName: user.displayName || 'Anónimo', photoURL: user.photoURL || '', role: 'guesser' }] : [],
+      leaderId: activeUser?.uid || 'guest',
+      players: activeUser ? [{ uid: activeUser.uid, displayName: activeUser.displayName || 'Anónimo', photoURL: activeUser.photoURL || '', role: 'guesser' }] : [],
       lastNarrative: 'El primer fragmento. Todo comenzó aquí.'
     };
     setGame(newGame);
@@ -211,7 +213,14 @@ function GameContent() {
 
   // Multiplayer Actions
   const createRoom = async () => {
-    if (!user) return;
+    if (!activeUser) return;
+    
+    // If it's a local guest (no Firebase Auth), warn them
+    if (!user && !auth.currentUser?.isAnonymous) {
+      setLobbyError("El modo Multijugador requiere que el administrador habilite 'Anonymous Auth' en Firebase. Por ahora, solo puedes jugar en modo Solo.");
+      return;
+    }
+
     const roomId = Math.random().toString(36).substring(2, 8).toUpperCase();
     const newGame: GameState = {
       roomId,
@@ -227,8 +236,8 @@ function GameContent() {
       status: GameStatus.LOBBY,
       scenarioId: SCENARIOS[0].id,
       createdAt: Date.now(),
-      leaderId: user.uid,
-      players: [{ uid: user.uid, displayName: user.displayName || 'Anónimo', photoURL: user.photoURL || '', role: 'setter' }],
+      leaderId: activeUser.uid,
+      players: [{ uid: activeUser.uid, displayName: activeUser.displayName || 'Anónimo', photoURL: activeUser.photoURL || '', role: 'setter' }],
       lastNarrative: 'Esperando a que los fragmentos se unan...'
     };
     const path = `rooms/${roomId}`;
@@ -252,7 +261,14 @@ function GameContent() {
   };
 
   const joinRoom = async (code: string) => {
-    if (!user || !code) return;
+    if (!activeUser || !code) return;
+
+    // If it's a local guest (no Firebase Auth), warn them
+    if (!user && !auth.currentUser?.isAnonymous) {
+      setLobbyError("El modo Multijugador requiere que el administrador habilite 'Anonymous Auth' en Firebase. Por ahora, solo puedes jugar en modo Solo.");
+      return;
+    }
+
     setLobbyError(null);
     const path = `rooms/${code.toUpperCase()}`;
     try {
@@ -260,9 +276,9 @@ function GameContent() {
       const docSnap = await getDoc(roomRef);
       if (docSnap.exists()) {
         const data = docSnap.data() as GameState;
-        const alreadyJoined = data.players.some(p => p.uid === user.uid);
+        const alreadyJoined = data.players.some(p => p.uid === activeUser.uid);
         if (!alreadyJoined) {
-          const updatedPlayers = [...data.players, { uid: user.uid, displayName: user.displayName || 'Anónimo', photoURL: user.photoURL || '', role: 'guesser' as const }];
+          const updatedPlayers = [...data.players, { uid: activeUser.uid, displayName: activeUser.displayName || 'Anónimo', photoURL: activeUser.photoURL || '', role: 'guesser' as const }];
           await updateDoc(roomRef, { players: updatedPlayers });
         }
         setGame(data);
@@ -331,7 +347,7 @@ function GameContent() {
 
     // In VS mode, only guessers can guess
     if (game.mode === GameMode.VS) {
-      const currentPlayer = game.players.find(p => p.uid === user?.uid);
+      const currentPlayer = game.players.find(p => p.uid === activeUser?.uid);
       if (currentPlayer?.role !== 'guesser') return;
     }
 
@@ -513,9 +529,36 @@ function GameContent() {
       let msg = error.message;
       if (error.code === 'auth/network-request-failed') {
         msg = "Error de red: No se pudo conectar con los servidores de autenticación. Por favor, verifica tu conexión a internet o intenta de nuevo más tarde.";
+      } else if (error.code === 'auth/admin-restricted-operation') {
+        msg = "El registro de nuevos usuarios está desactivado en la consola de Firebase. Por favor, actívalo en Authentication > Settings > User actions.";
+      } else if (error.code === 'auth/operation-not-allowed') {
+        msg = "Este método de inicio de sesión no está habilitado. Por favor, actívalo en la consola de Firebase.";
       }
       setAuthError(msg);
     }
+  };
+
+  const handleGuestAuth = async () => {
+    setAuthError(null);
+    try {
+      // Try to sign in anonymously so they can use Firestore rooms
+      await signInGuest();
+    } catch (error: any) {
+      console.warn("Anonymous auth failed, falling back to local guest:", error.message);
+      // Fallback to local guest if anonymous auth is disabled in console
+      setGuestUser({
+        uid: `guest_${Math.random().toString(36).substring(2, 9)}`,
+        displayName: 'Invitado (Local)',
+        photoURL: `https://api.dicebear.com/7.x/avataaars/svg?seed=guest_${Math.random()}`
+      });
+    }
+  };
+
+  const resetToLobby = () => {
+    setGame(null);
+    setStatus(GameStatus.IDLE);
+    setLobbyError(null);
+    setAuthError(null);
   };
 
   const handleSceneClick = async () => {
@@ -523,7 +566,7 @@ function GameContent() {
     
     // In VS mode, only guessers can gain energy by clicking
     if (game.mode === GameMode.VS) {
-      const currentPlayer = game.players.find(p => p.uid === user?.uid);
+      const currentPlayer = game.players.find(p => p.uid === activeUser?.uid);
       if (currentPlayer?.role !== 'guesser') return;
     }
 
@@ -542,7 +585,7 @@ function GameContent() {
   if (!isAuthReady) return <div className="min-h-screen bg-[#0A0608] flex items-center justify-center text-white font-serif">Cargando mente...</div>;
 
   // PANTALLA 1 — Inicio de Sesión
-  if (!user) {
+  if (!activeUser) {
     return (
       <div className="min-h-screen bg-[#0A0608] text-white font-sans flex flex-col items-center justify-center p-6 relative overflow-hidden">
         {/* Subtle Background Glow */}
@@ -614,6 +657,13 @@ function GameContent() {
           </div>
 
           <button 
+            onClick={handleGuestAuth}
+            className="w-full py-3 mb-4 bg-white/5 border border-white/10 text-gray-400 font-bold rounded-2xl flex items-center justify-center gap-3 hover:bg-white/10 transition-all active:scale-[0.98] text-xs uppercase tracking-widest"
+          >
+            ENTRAR COMO INVITADO
+          </button>
+
+          <button 
             onClick={signIn}
             className="w-full py-4 bg-white/5 border border-white/10 text-white font-bold rounded-2xl flex items-center justify-center gap-3 hover:bg-white/10 transition-all active:scale-[0.98]"
           >
@@ -675,22 +725,34 @@ function GameContent() {
           </div>
           
           <div className="flex items-center gap-4 pointer-events-auto">
+            {status !== GameStatus.IDLE && (
+              <button 
+                onClick={resetToLobby}
+                className="flex items-center gap-2 bg-white/5 backdrop-blur-md px-4 py-2 rounded-2xl border border-white/10 text-xs font-bold uppercase tracking-widest hover:bg-white/10 transition-all text-gray-400 hover:text-white"
+              >
+                <ChevronLeft size={16} />
+                SALIR
+              </button>
+            )}
             <div className="flex items-center gap-3 bg-white/5 backdrop-blur-md px-4 py-2 rounded-2xl border border-white/10 shadow-2xl hover:bg-white/10 transition-all">
               <div className="relative">
                 <img 
-                  src={user.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.uid}`} 
+                  src={activeUser.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${activeUser.uid}`} 
                   alt="" 
                   className="w-10 h-10 rounded-xl border-2 border-accent/50 object-cover shadow-lg" 
                 />
-                <div className="absolute -bottom-1 -right-1 w-3.5 h-3.5 bg-teal-500 border-2 border-[#0A0608] rounded-full shadow-sm" />
+                <div className={`absolute -bottom-1 -right-1 w-3.5 h-3.5 ${user ? 'bg-teal-500' : 'bg-gray-500'} border-2 border-[#0A0608] rounded-full shadow-sm`} />
               </div>
               <div className="flex flex-col">
-                <span className="text-sm font-bold tracking-tight text-white leading-none mb-1">{user.displayName || user.email?.split('@')[0]}</span>
-                <span className="text-[9px] uppercase tracking-[0.2em] text-accent font-bold">Nivel 1</span>
+                <span className="text-sm font-bold tracking-tight text-white leading-none mb-1">{activeUser.displayName || (activeUser as any).email?.split('@')[0]}</span>
+                <span className="text-[9px] uppercase tracking-[0.2em] text-accent font-bold">{user ? 'Conectado' : 'Invitado'}</span>
               </div>
               <div className="w-px h-8 bg-white/10 mx-2" />
               <button 
-                onClick={logOut} 
+                onClick={() => {
+                  if (user) logOut();
+                  else setGuestUser(null);
+                }} 
                 className="p-2 hover:bg-danger/20 hover:text-danger rounded-xl transition-all group"
                 title="Cerrar Sesión"
               >
@@ -835,7 +897,7 @@ function GameContent() {
                 </div>
               </div>
 
-              {game.leaderId === user?.uid ? (
+              {game.leaderId === activeUser?.uid ? (
                 <button 
                   onClick={goToWordEntry}
                   disabled={game.players.length < 2}
@@ -924,7 +986,7 @@ function GameContent() {
             exit={{ opacity: 0 }}
             className="min-h-screen flex flex-col items-center justify-center px-6 pt-20"
           >
-            {game.leaderId === user?.uid ? (
+            {game.leaderId === activeUser?.uid ? (
               <div className="max-w-xl w-full bg-white/5 p-10 rounded-3xl border border-accent/30 flex flex-col gap-8">
                 <div className="text-center">
                   <h2 className="text-3xl font-serif text-gold mb-2 uppercase tracking-widest">Prepara el Recuerdo</h2>
