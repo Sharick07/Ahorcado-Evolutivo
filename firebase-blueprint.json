@@ -1,0 +1,64 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile information",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "Unique identifier for the user" },
+        "displayName": { "type": "string", "description": "User's display name" },
+        "email": { "type": "string", "format": "email", "description": "User's email address" },
+        "photoURL": { "type": "string", "format": "uri", "description": "URL to the user's profile photo" },
+        "role": { "type": "string", "enum": ["admin", "user"], "description": "User's role in the application" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "When the user profile was created" }
+      },
+      "required": ["uid", "email"]
+    },
+    "GameState": {
+      "title": "GameState",
+      "description": "The state of a game room",
+      "type": "object",
+      "properties": {
+        "roomId": { "type": "string", "description": "Unique identifier for the room" },
+        "mode": { "type": "string", "enum": ["solo", "vs", "story"], "description": "Game mode" },
+        "word": { "type": "string", "description": "The word to guess" },
+        "hint": { "type": "string", "description": "Hint for the word" },
+        "revealed": { "type": "array", "items": { "type": "boolean" }, "description": "Revealed letters" },
+        "guessed": { "type": "array", "items": { "type": "string" }, "description": "Guessed letters" },
+        "errors": { "type": "integer", "description": "Number of errors" },
+        "maxErrors": { "type": "integer", "description": "Maximum allowed errors" },
+        "guesserEnergy": { "type": "integer", "description": "Energy of the guesser" },
+        "setterEnergy": { "type": "integer", "description": "Energy of the setter" },
+        "status": { "type": "string", "enum": ["idle", "selecting_mode", "lobby", "word_entry", "playing", "won", "lost", "results"], "description": "Current status of the game" },
+        "scenarioId": { "type": "string", "description": "ID of the scenario" },
+        "lastNarrative": { "type": "string", "description": "Last narrative generated" },
+        "createdAt": { "type": "number", "description": "Timestamp of creation" },
+        "leaderId": { "type": "string", "description": "UID of the room leader" },
+        "players": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "uid": { "type": "string" },
+              "displayName": { "type": "string" },
+              "photoURL": { "type": "string" },
+              "role": { "type": "string", "enum": ["setter", "guesser"] }
+            },
+            "required": ["uid", "displayName", "role"]
+          }
+        }
+      },
+      "required": ["mode", "word", "status", "scenarioId", "createdAt", "leaderId", "players"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User profiles"
+    },
+    "/rooms/{roomId}": {
+      "schema": "GameState",
+      "description": "Active game rooms"
+    }
+  }
+}

@@ -1,0 +1,57 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() && 
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
+         (request.auth.token.email == "sharikcperez54@gmail.com" && request.auth.token.email_verified == true));
+    }
+
+    // ===============================================================
+    // Domain Validators
+    // ===============================================================
+    function isValidUser(data) {
+      return data.keys().hasAll(['uid', 'email']) &&
+             data.uid is string && data.uid.size() > 0 &&
+             data.email is string && data.email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
+    }
+
+    function isValidGameState(data) {
+      return data.keys().hasAll(['mode', 'word', 'status', 'scenarioId', 'createdAt', 'leaderId', 'players']) &&
+             data.mode in ['solo', 'vs', 'story'] &&
+             data.word is string &&
+             data.status in ['idle', 'selecting_mode', 'lobby', 'word_entry', 'playing', 'won', 'lost', 'results'] &&
+             data.scenarioId is string &&
+             data.createdAt is number &&
+             data.leaderId is string &&
+             data.players is list;
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+    match /users/{userId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && isOwner(userId) && isValidUser(request.resource.data);
+      allow update: if isAuthenticated() && (isOwner(userId) || isAdmin()) && isValidUser(request.resource.data);
+    }
+
+    match /rooms/{roomId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && isValidGameState(request.resource.data);
+      allow update: if isAuthenticated() && (request.auth.uid == resource.data.leaderId || request.auth.uid in resource.data.players.map(p, p.uid) || isAdmin()) && isValidGameState(request.resource.data);
+      allow delete: if isAuthenticated() && (request.auth.uid == resource.data.leaderId || isAdmin());
+    }
+  }
+}
