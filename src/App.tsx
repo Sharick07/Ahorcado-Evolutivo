@@ -1,7 +1,7 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, Component, ErrorInfo, ReactNode } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { GoogleGenAI } from '@google/genai';
-import { auth, signIn, logOut, db, signInEmail, signUpEmail } from './firebase';
+import { auth, signIn, logOut, db, signInEmail, signUpEmail, handleFirestoreError, OperationType } from './firebase';
 import { onAuthStateChanged, User } from 'firebase/auth';
 import { 
   doc, 
@@ -21,7 +21,53 @@ import Narrative from './components/Narrative';
 import Keyboard from './components/Keyboard';
 import PowerBar from './components/PowerBar';
 import Hangman from './components/Hangman';
-import { LogOut, LogIn, RefreshCw, Trophy, Skull, Sparkles, Brain, Sword, BookOpen, ChevronLeft, Info, Users, Plus, Play, Mail, Lock } from 'lucide-react';
+import { LogOut, LogIn, RefreshCw, Trophy, Skull, Sparkles, Brain, Sword, BookOpen, ChevronLeft, Info, Users, Plus, Play, Mail, Lock, AlertTriangle } from 'lucide-react';
+
+// Error Boundary Component
+class ErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean, error: Error | null }> {
+  constructor(props: { children: ReactNode }) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error: Error) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: Error, errorInfo: ErrorInfo) {
+    console.error("ErrorBoundary caught an error", error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      let errorMessage = "Algo salió mal. Por favor, intenta recargar la página.";
+      try {
+        if (this.state.error?.message) {
+          const parsed = JSON.parse(this.state.error.message);
+          if (parsed.error) errorMessage = `Error de Base de Datos: ${parsed.error}`;
+        }
+      } catch (e) {
+        errorMessage = this.state.error?.message || errorMessage;
+      }
+
+      return (
+        <div className="min-h-screen bg-[#0A0608] flex flex-col items-center justify-center p-6 text-center">
+          <AlertTriangle size={64} className="text-danger mb-6" />
+          <h1 className="text-3xl font-serif font-bold text-white mb-4">ERROR DE CONEXIÓN</h1>
+          <p className="text-gray-400 max-w-md mb-8">{errorMessage}</p>
+          <button 
+            onClick={() => window.location.reload()}
+            className="px-8 py-3 bg-accent text-white font-bold rounded-xl hover:bg-accent/80 transition-all"
+          >
+            REINTENTAR
+          </button>
+        </div>
+      );
+    }
+
+    return this.props.children;
+  }
+}
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || '' });
 
@@ -35,6 +81,14 @@ const normalize = (c: string) => {
 };
 
 export default function App() {
+  return (
+    <ErrorBoundary>
+      <GameContent />
+    </ErrorBoundary>
+  );
+}
+
+function GameContent() {
   const [user, setUser] = useState<User | null>(null);
   const [game, setGame] = useState<GameState | null>(null);
   const [status, setStatus] = useState<GameStatus>(GameStatus.IDLE);
@@ -63,12 +117,15 @@ export default function App() {
   // Multiplayer Sync
   useEffect(() => {
     if (game?.roomId && game.mode === GameMode.VS) {
+      const path = `rooms/${game.roomId}`;
       const unsubscribe = onSnapshot(doc(db, 'rooms', game.roomId), (docSnap) => {
         if (docSnap.exists()) {
           const data = docSnap.data() as GameState;
           setGame(data);
           setStatus(data.status);
         }
+      }, (error) => {
+        handleFirestoreError(error, OperationType.GET, path);
       });
       return unsubscribe;
     }
@@ -174,32 +231,47 @@ export default function App() {
       players: [{ uid: user.uid, displayName: user.displayName || 'Anónimo', photoURL: user.photoURL || '', role: 'setter' }],
       lastNarrative: 'Esperando a que los fragmentos se unan...'
     };
-    await setDoc(doc(db, 'rooms', roomId), newGame);
-    setGame(newGame);
-    setStatus(GameStatus.LOBBY);
+    const path = `rooms/${roomId}`;
+    try {
+      await setDoc(doc(db, 'rooms', roomId), newGame);
+      setGame(newGame);
+      setStatus(GameStatus.LOBBY);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, path);
+    }
   };
 
   const goToWordEntry = async () => {
     if (!game?.roomId) return;
-    await updateDoc(doc(db, 'rooms', game.roomId), { status: GameStatus.WORD_ENTRY });
+    const path = `rooms/${game.roomId}`;
+    try {
+      await updateDoc(doc(db, 'rooms', game.roomId), { status: GameStatus.WORD_ENTRY });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, path);
+    }
   };
 
   const joinRoom = async (code: string) => {
     if (!user || !code) return;
     setLobbyError(null);
-    const roomRef = doc(db, 'rooms', code.toUpperCase());
-    const docSnap = await getDoc(roomRef);
-    if (docSnap.exists()) {
-      const data = docSnap.data() as GameState;
-      const alreadyJoined = data.players.some(p => p.uid === user.uid);
-      if (!alreadyJoined) {
-        const updatedPlayers = [...data.players, { uid: user.uid, displayName: user.displayName || 'Anónimo', photoURL: user.photoURL || '', role: 'guesser' as const }];
-        await updateDoc(roomRef, { players: updatedPlayers });
+    const path = `rooms/${code.toUpperCase()}`;
+    try {
+      const roomRef = doc(db, 'rooms', code.toUpperCase());
+      const docSnap = await getDoc(roomRef);
+      if (docSnap.exists()) {
+        const data = docSnap.data() as GameState;
+        const alreadyJoined = data.players.some(p => p.uid === user.uid);
+        if (!alreadyJoined) {
+          const updatedPlayers = [...data.players, { uid: user.uid, displayName: user.displayName || 'Anónimo', photoURL: user.photoURL || '', role: 'guesser' as const }];
+          await updateDoc(roomRef, { players: updatedPlayers });
+        }
+        setGame(data);
+        setStatus(data.status);
+      } else {
+        setLobbyError('Sala no encontrada o código incorrecto.');
       }
-      setGame(data);
-      setStatus(data.status);
-    } else {
-      setLobbyError('Sala no encontrada o código incorrecto.');
+    } catch (error) {
+      handleFirestoreError(error, OperationType.GET, path);
     }
   };
 
@@ -215,9 +287,14 @@ export default function App() {
       scenarioId: selectedScenarioId,
       lastNarrative: 'El recuerdo ha sido implantado. Comienza la reconstrucción.'
     };
-    await updateDoc(doc(db, 'rooms', game.roomId), updatedGame);
-    setGame(updatedGame);
-    setStatus(GameStatus.PLAYING);
+    const path = `rooms/${game.roomId}`;
+    try {
+      await updateDoc(doc(db, 'rooms', game.roomId), updatedGame);
+      setGame(updatedGame);
+      setStatus(GameStatus.PLAYING);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.WRITE, path);
+    }
   };
 
   // AI Narration
@@ -288,7 +365,12 @@ export default function App() {
     };
 
     if (game.roomId && game.mode === GameMode.VS) {
-      await updateDoc(doc(db, 'rooms', game.roomId), updatedGame);
+      const path = `rooms/${game.roomId}`;
+      try {
+        await updateDoc(doc(db, 'rooms', game.roomId), updatedGame);
+      } catch (error) {
+        handleFirestoreError(error, OperationType.WRITE, path);
+      }
     } else {
       setGame(updatedGame);
       generateNarrative(updatedGame, isCorrect ? 'acierto' : 'error');
@@ -321,7 +403,12 @@ export default function App() {
       });
       
       if (finalState.roomId && finalState.mode === GameMode.VS) {
-        await updateDoc(doc(db, 'rooms', finalState.roomId), { lastNarrative: response.text });
+        const path = `rooms/${finalState.roomId}`;
+        try {
+          await updateDoc(doc(db, 'rooms', finalState.roomId), { lastNarrative: response.text });
+        } catch (error) {
+          handleFirestoreError(error, OperationType.WRITE, path);
+        }
       } else {
         setGame(prev => prev ? { ...prev, lastNarrative: response.text } : null);
       }
@@ -356,7 +443,12 @@ export default function App() {
         };
         
         if (game.roomId && game.mode === GameMode.VS) {
-          await updateDoc(doc(db, 'rooms', game.roomId), updatedGame);
+          const path = `rooms/${game.roomId}`;
+          try {
+            await updateDoc(doc(db, 'rooms', game.roomId), updatedGame);
+          } catch (error) {
+            handleFirestoreError(error, OperationType.WRITE, path);
+          }
         } else {
           setGame(updatedGame);
           generateNarrative(updatedGame, 'poder: revelar');
@@ -388,10 +480,15 @@ export default function App() {
         });
 
         if (game.roomId && game.mode === GameMode.VS) {
-          await updateDoc(doc(db, 'rooms', game.roomId), { 
-            lastNarrative: response.text, 
-            guesserEnergy: game.guesserEnergy - 20 
-          });
+          const path = `rooms/${game.roomId}`;
+          try {
+            await updateDoc(doc(db, 'rooms', game.roomId), { 
+              lastNarrative: response.text, 
+              guesserEnergy: game.guesserEnergy - 20 
+            });
+          } catch (error) {
+            handleFirestoreError(error, OperationType.WRITE, path);
+          }
         } else {
           setGame(prev => prev ? { ...prev, lastNarrative: response.text, guesserEnergy: prev.guesserEnergy - 20 } : null);
         }
@@ -413,7 +510,11 @@ export default function App() {
         await signInEmail(loginEmail, loginPass);
       }
     } catch (error: any) {
-      setAuthError(error.message);
+      let msg = error.message;
+      if (error.code === 'auth/network-request-failed') {
+        msg = "Error de red: No se pudo conectar con los servidores de autenticación. Por favor, verifica tu conexión a internet o intenta de nuevo más tarde.";
+      }
+      setAuthError(msg);
     }
   };
 
@@ -427,7 +528,12 @@ export default function App() {
     }
 
     if (game.roomId && game.mode === GameMode.VS) {
-      await updateDoc(doc(db, 'rooms', game.roomId), { guesserEnergy: game.guesserEnergy + 5 });
+      const path = `rooms/${game.roomId}`;
+      try {
+        await updateDoc(doc(db, 'rooms', game.roomId), { guesserEnergy: game.guesserEnergy + 5 });
+      } catch (error) {
+        handleFirestoreError(error, OperationType.WRITE, path);
+      }
     } else {
       setGame(prev => prev ? { ...prev, guesserEnergy: prev.guesserEnergy + 5 } : null);
     }
