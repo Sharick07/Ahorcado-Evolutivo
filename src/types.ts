@@ -12,7 +12,8 @@ export enum GameStatus {
   PLAYING = 'playing',
   WON = 'won',
   LOST = 'lost',
-  RESULTS = 'results'
+  RESULTS = 'results',
+  SETTINGS = 'settings'
 }
 
 export enum Difficulty {
@@ -78,3 +79,10 @@ export const COLORS = {
   teal: '#4AB8A0',
   danger: '#C84A4A'
 };
+
+export interface AppSettings {
+  theme: 'dark' | 'light' | 'high-contrast';
+  masterVolume: number;
+  sfxVolume: number;
+  particlesEnabled: boolean;
+}

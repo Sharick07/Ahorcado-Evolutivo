@@ -1,23 +1,71 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Playfair+Display:ital,wght@0,400;0,700;1,400&family=JetBrains+Mono:wght@400;700&display=swap');
 @import "tailwindcss";
 
+:root, [data-theme='dark'] {
+  --app-bg: #0A0608;
+  --app-text: #ffffff;
+  --app-text-muted: #9ca3af;
+  --app-accent: #C8744A;
+  --app-purple: #7B4FA0;
+  --app-gold: #D4A843;
+  --app-teal: #4AB8A0;
+  --app-danger: #C84A4A;
+  --app-panel: rgba(255, 255, 255, 0.05);
+  --app-panel-border: rgba(255, 255, 255, 0.1);
+  --app-panel-hover: rgba(255, 255, 255, 0.1);
+}
+
+[data-theme='light'] {
+  --app-bg: #F4F1EA;
+  --app-text: #2C1E16;
+  --app-text-muted: #78716C;
+  --app-accent: #C8744A;
+  --app-purple: #8B5ECA;
+  --app-gold: #D4A843;
+  --app-teal: #3B9884;
+  --app-danger: #D64545;
+  --app-panel: rgba(0, 0, 0, 0.05);
+  --app-panel-border: rgba(0, 0, 0, 0.1);
+  --app-panel-hover: rgba(0, 0, 0, 0.1);
+}
+
+[data-theme='high-contrast'] {
+  --app-bg: #000000;
+  --app-text: #ffffff;
+  --app-text-muted: #ffffff;
+  --app-accent: #FF5500;
+  --app-purple: #AA00FF;
+  --app-gold: #FFD700;
+  --app-teal: #00FFCC;
+  --app-danger: #FF0000;
+  --app-panel: rgba(255, 255, 255, 0.1);
+  --app-panel-border: rgba(255, 255, 255, 0.5);
+  --app-panel-hover: rgba(255, 255, 255, 0.2);
+}
+
 @theme {
   --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
   --font-serif: "Playfair Display", serif;
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
   
-  --color-bg: #0A0608;
-  --color-accent: #C8744A;
-  --color-purple: #7B4FA0;
-  --color-gold: #D4A843;
-  --color-teal: #4AB8A0;
-  --color-danger: #C84A4A;
+  --color-bg: var(--app-bg);
+  --color-text: var(--app-text);
+  --color-text-muted: var(--app-text-muted);
+  --color-accent: var(--app-accent);
+  --color-purple: var(--app-purple);
+  --color-gold: var(--app-gold);
+  --color-teal: var(--app-teal);
+  --color-danger: var(--app-danger);
+  --color-panel: var(--app-panel);
+  --color-panel-border: var(--app-panel-border);
+  --color-panel-hover: var(--app-panel-hover);
 }
 
 body {
   background-color: var(--color-bg);
-  color: white;
+  color: var(--color-text);
   overflow-x: hidden;
+  transition: background-color 0.3s ease, color 0.3s ease;
 }
 
 .markdown-body p {
