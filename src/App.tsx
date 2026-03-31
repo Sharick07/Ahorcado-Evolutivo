@@ -15,13 +15,14 @@ import {
   serverTimestamp,
   getDoc
 } from 'firebase/firestore';
-import { GameMode, GameStatus, GameState, SCENARIOS, COLORS, Difficulty } from './types';
+import { GameMode, GameStatus, GameState, SCENARIOS, COLORS, Difficulty, AppSettings } from './types';
+import SettingsView from './components/Settings';
 import Scenario from './components/Scenario';
 import Narrative from './components/Narrative';
 import Keyboard from './components/Keyboard';
 import PowerBar from './components/PowerBar';
 import Hangman from './components/Hangman';
-import { LogOut, LogIn, RefreshCw, Trophy, Skull, Sparkles, Brain, Sword, BookOpen, ChevronLeft, Info, Users, Plus, Play, Mail, Lock, AlertTriangle } from 'lucide-react';
+import { LogOut, LogIn, RefreshCw, Trophy, Skull, Sparkles, Brain, Sword, BookOpen, ChevronLeft, Info, Users, Plus, Play, Mail, Lock, AlertTriangle, Settings as SettingsIcon } from 'lucide-react';
 
 // Error Boundary Component
 class ErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean, error: Error | null }> {
@@ -106,6 +107,23 @@ function GameContent() {
   const [loginPass, setLoginPass] = useState('');
   const [isSignUp, setIsSignUp] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
+
+  const defaultSettings: AppSettings = {
+    theme: 'dark',
+    masterVolume: 100,
+    sfxVolume: 100,
+    particlesEnabled: true
+  };
+
+  const [settings, setSettings] = useState<AppSettings>(() => {
+    const saved = localStorage.getItem('ahorcado_settings');
+    return saved ? JSON.parse(saved) : defaultSettings;
+  });
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', settings.theme);
+    localStorage.setItem('ahorcado_settings', JSON.stringify(settings));
+  }, [settings]);
 
   // Auth Listener
   useEffect(() => {
@@ -688,7 +706,8 @@ function GameContent() {
   return (
     <div className="min-h-screen bg-[#0A0608] text-white font-sans selection:bg-teal-500/30 relative overflow-hidden">
       {/* Particle Background */}
-      <div className="absolute inset-0 pointer-events-none opacity-20">
+      {settings.particlesEnabled && (
+        <div className="absolute inset-0 pointer-events-none opacity-20">
         {[...Array(30)].map((_, i) => (
           <motion.div
             key={i}
@@ -709,7 +728,8 @@ function GameContent() {
             }}
           />
         ))}
-      </div>
+        </div>
+      )}
 
       {/* Persistent User Header */}
       <header className="fixed top-0 left-0 right-0 z-[60] px-8 py-6 pointer-events-none">
@@ -732,6 +752,16 @@ function GameContent() {
               >
                 <ChevronLeft size={16} />
                 SALIR
+              </button>
+            )}
+            {status === GameStatus.IDLE && (
+              <button
+                onClick={() => setStatus(GameStatus.SETTINGS)}
+                className="flex items-center gap-2 bg-white/5 backdrop-blur-md px-4 py-2 rounded-2xl border border-white/10 text-xs font-bold uppercase tracking-widest hover:bg-white/10 transition-all text-gray-400 hover:text-white"
+                title="Configuración"
+              >
+                <SettingsIcon size={16} />
+                AJUSTES
               </button>
             )}
             <div className="flex items-center gap-3 bg-white/5 backdrop-blur-md px-4 py-2 rounded-2xl border border-white/10 shadow-2xl hover:bg-white/10 transition-all">
@@ -764,6 +794,14 @@ function GameContent() {
       </header>
 
       <AnimatePresence mode="wait">
+        {status === GameStatus.SETTINGS && (
+          <SettingsView
+            key="settings"
+            settings={settings}
+            onUpdate={(updates) => setSettings(s => ({ ...s, ...updates }))}
+            onClose={() => setStatus(GameStatus.IDLE)}
+          />
+        )}
         {status === GameStatus.IDLE && (
           <motion.div 
             key="home"
